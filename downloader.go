@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -8,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/tufin/oasdiff/diff"
+	"github.com/tufin/oasdiff/report"
 	"go.uber.org/zap"
 )
 
@@ -81,8 +86,8 @@ func (downloader *Downloader) downloadFile(doc Doc) {
 		logger.Error("read body error ", zap.String("url", url), zap.Error(err))
 		return
 	}
-	logger.Info(url)
-	isSame, err := isSameLeastVersion(folder, body)
+
+	isSame, diff, err := isSameLeastVersion(folder, body)
 	if isSame {
 		logger.Info("same version", zap.String("url", url))
 		return
@@ -105,4 +110,35 @@ func (downloader *Downloader) downloadFile(doc Doc) {
 		return
 	}
 
+	SendSlackNotification(doc, diff)
+}
+
+type SlackRequestBody struct {
+	Text string `json:"text"`
+}
+
+// SendSlackNotification will post to an 'Incoming Webook' url setup in Slack Apps. It accepts
+// some text and the slack channel is saved within Slack.
+func SendSlackNotification(doc Doc, diff *diff.Diff) error {
+	msg := doc.Name + " 串接文件有更新\n```\n" + report.GetTextReportAsString(diff) + "\n```"
+	slackBody, _ := json.Marshal(SlackRequestBody{Text: msg})
+	req, err := http.NewRequest(http.MethodPost, config.SlackWebhookUrl, bytes.NewBuffer(slackBody))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	if buf.String() != "ok" {
+		return errors.New("Non-ok response returned from Slack")
+	}
+	return nil
 }

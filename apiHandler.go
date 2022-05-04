@@ -1,16 +1,17 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/tufin/oasdiff/diff"
 	"github.com/tufin/oasdiff/load"
 	"github.com/tufin/oasdiff/report"
+	"gopkg.in/yaml.v2"
 )
 
 func listDocsHandler(e echo.Context) error {
@@ -54,16 +55,28 @@ func docDiffDetailHandler(e echo.Context) error {
 	if err != nil {
 		return e.JSON(500, "load version 2 error "+err.Error())
 	}
-
 	diffReport, err := diff.Get(diffConfig(), s1, s2)
 	if err != nil {
 		return e.JSON(500, "get diff error "+err.Error())
 
 	}
+
 	html, err := report.GetHTMLReportAsString(diffReport)
 	if err != nil {
 		return e.JSON(500, "gen report error "+err.Error())
 	}
-	fmt.Println(html)
 	return e.JSON(200, map[string]string{"diff": html})
+}
+
+func printYAML(output interface{}) (string, error) {
+	if reflect.ValueOf(output).IsNil() {
+		return "", nil
+	}
+
+	bytes, err := yaml.Marshal(output)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+
 }

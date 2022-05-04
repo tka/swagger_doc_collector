@@ -19,11 +19,11 @@ func newApiLoader() *openapi3.Loader {
 	loader.IsExternalRefsAllowed = true
 	return loader
 }
-func isSameLeastVersion(folder string, apiBody []byte) (bool, error) {
+func isSameLeastVersion(folder string, apiBody []byte) (bool, *diff.Diff, error) {
 	loader := openapi3.NewLoader()
 	s1, err := loader.LoadFromData(apiBody)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	var leastVersion string
@@ -35,26 +35,26 @@ func isSameLeastVersion(folder string, apiBody []byte) (bool, error) {
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	if leastVersion == "" {
-		return false, nil
+		return false, nil, nil
 	}
 	s2, err := load.From(loader, leastVersion)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	diffReport, err := diff.Get(diffConfig(), s1, s2)
 
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	if diffReport.Empty() {
-		return true, nil
+		return true, nil, nil
 	}
-	return false, nil
+	return false, diffReport, nil
 }
 func removeDuplicates(folder string) error {
 	versions := make([]string, 0)
