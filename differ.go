@@ -5,27 +5,16 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/tufin/oasdiff/diff"
-	"github.com/tufin/oasdiff/load"
-	"github.com/tufin/oasdiff/report"
+	"github.com/go-openapi/loads"
+	"github.com/go-swagger/go-swagger/cmd/swagger/commands/diff"
 )
 
-func diffConfig() *diff.Config {
-	return diff.NewConfig()
-}
-func newApiLoader() *openapi3.Loader {
-	loader := openapi3.NewLoader()
-	loader.IsExternalRefsAllowed = true
-	return loader
-}
-func isSameLeastVersion(folder string, apiBody []byte) (bool, *diff.Diff, error) {
-	loader := openapi3.NewLoader()
-	s1, err := loader.LoadFromData(apiBody)
+func isSameLeastVersion(folder string, newVersionPath string) (bool, *diff.SpecDifferences, error) {
+	s1, err := loads.Spec(newVersionPath)
+
 	if err != nil {
 		return false, nil, err
 	}
-
 	var leastVersion string
 	err = filepath.Walk(folder, func(path string, f os.FileInfo, err error) error {
 		if f.IsDir() {
@@ -34,6 +23,7 @@ func isSameLeastVersion(folder string, apiBody []byte) (bool, *diff.Diff, error)
 		leastVersion = path
 		return nil
 	})
+
 	if err != nil {
 		return false, nil, err
 	}
@@ -41,53 +31,26 @@ func isSameLeastVersion(folder string, apiBody []byte) (bool, *diff.Diff, error)
 	if leastVersion == "" {
 		return false, nil, nil
 	}
-	s2, err := load.From(loader, leastVersion)
+	s2, err := loads.Spec(leastVersion)
 	if err != nil {
 		return false, nil, err
 	}
 
-	diffReport, err := diff.Get(diffConfig(), s1, s2)
-
+	diffReport, err := diff.Compare(s1.Spec(), s2.Spec())
 	if err != nil {
 		return false, nil, err
 	}
-	if diffReport.Empty() {
+
+	input, err, _ := diffReport.ReportAllDiffs(true)
+	var result []byte
+	input.Read(result)
+	fmt.Println(string(result))
+	if string(result) == "[]\n" {
 		return true, nil, nil
 	}
-	return false, diffReport, nil
-}
-func removeDuplicates(folder string) error {
-	versions := make([]string, 0)
-	err := filepath.Walk(folder, func(path string, f os.FileInfo, err error) error {
-		if f.IsDir() {
-			return nil
-		}
-		fmt.Println(path)
-		versions = append(versions, path)
-		return nil
-	})
 	if err != nil {
-		return err
+		return false, nil, err
 	}
-	loader := openapi3.NewLoader()
-	loader.IsExternalRefsAllowed = true
-	s1, err := load.From(loader, versions[0])
-	if err != nil {
-		return err
-	}
-	s2, err := load.From(loader, versions[1])
-	if err != nil {
-		return err
-	}
-	diffReport, err := diff.Get(diffConfig(), s1, s2)
-	fmt.Println("diffReport", diffReport)
-	if err != nil {
-		return err
-	}
-	html, err := report.GetHTMLReportAsString(diffReport)
-	if err != nil {
-		return err
-	}
-	fmt.Println(html)
-	return nil
+
+	return false, &diffReport, nil
 }

@@ -6,11 +6,9 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-openapi/loads"
+	"github.com/go-swagger/go-swagger/cmd/swagger/commands/diff"
 	"github.com/labstack/echo/v4"
-	"github.com/tufin/oasdiff/diff"
-	"github.com/tufin/oasdiff/load"
-	"github.com/tufin/oasdiff/report"
 	"gopkg.in/yaml.v2"
 )
 
@@ -46,26 +44,29 @@ func docDiffDetailHandler(e echo.Context) error {
 		}
 	}
 
-	loader := openapi3.NewLoader()
-	s1, err := load.From(loader, path.Join(doc.Path(), filepath.Base(docVersion1)))
+	s1, err := loads.Spec(path.Join(doc.Path(), filepath.Base(docVersion1)))
 	if err != nil {
 		return e.JSON(500, "load version 1 error "+err.Error())
 	}
-	s2, err := load.From(loader, path.Join(doc.Path(), filepath.Base(docVersion2)))
+
+	s2, err := loads.Spec(path.Join(doc.Path(), filepath.Base(docVersion2)))
 	if err != nil {
 		return e.JSON(500, "load version 2 error "+err.Error())
 	}
-	diffReport, err := diff.Get(diffConfig(), s1, s2)
+	diffs, err := diff.Compare(s1.Spec(), s2.Spec())
+
 	if err != nil {
 		return e.JSON(500, "get diff error "+err.Error())
 
 	}
+	input, err, _ := diffs.ReportAllDiffs(false)
+	var result = make([]byte, 1024*20) // read 20k diff
+	input.Read(result)
 
-	html, err := report.GetHTMLReportAsString(diffReport)
 	if err != nil {
 		return e.JSON(500, "gen report error "+err.Error())
 	}
-	return e.JSON(200, map[string]string{"diff": html})
+	return e.JSON(200, map[string]string{"diff": string(result)})
 }
 
 func printYAML(output interface{}) (string, error) {

@@ -11,8 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tufin/oasdiff/diff"
-	"github.com/tufin/oasdiff/report"
+	"github.com/go-swagger/go-swagger/cmd/swagger/commands/diff"
 	"go.uber.org/zap"
 )
 
@@ -87,7 +86,11 @@ func (downloader *Downloader) downloadFile(doc Doc) {
 		return
 	}
 
-	isSame, diff, err := isSameLeastVersion(folder, body)
+	tmpFile, err := os.CreateTemp("", "newapi")
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Write(body)
+	tmpFile.Close()
+	isSame, diffs, err := isSameLeastVersion(folder, tmpFile.Name())
 	if isSame {
 		logger.Info("same version", zap.String("url", url))
 		return
@@ -110,7 +113,7 @@ func (downloader *Downloader) downloadFile(doc Doc) {
 		return
 	}
 
-	SendSlackNotification(doc, diff)
+	SendSlackNotification(doc, diffs)
 }
 
 type SlackRequestBody struct {
@@ -119,8 +122,13 @@ type SlackRequestBody struct {
 
 // SendSlackNotification will post to an 'Incoming Webook' url setup in Slack Apps. It accepts
 // some text and the slack channel is saved within Slack.
-func SendSlackNotification(doc Doc, diff *diff.Diff) error {
-	msg := doc.Name + " 串接文件有更新\n```\n" + report.GetTextReportAsString(diff) + "\n```"
+
+func SendSlackNotification(doc Doc, diffs *diff.SpecDifferences) error {
+	input, err, _ := diffs.ReportAllDiffs(false)
+	var result = make([]byte, 20*1024)
+	input.Read(result)
+
+	msg := doc.Name + " 串接文件有更新\n```\n" + string(result) + "\n```"
 	slackBody, _ := json.Marshal(SlackRequestBody{Text: msg})
 	req, err := http.NewRequest(http.MethodPost, config.SlackWebhookUrl, bytes.NewBuffer(slackBody))
 	if err != nil {
