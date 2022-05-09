@@ -19,7 +19,8 @@
     <div class="row">
         <div class="accordion accordion-flush col-3" id="docs">
         </div>
-        <div class="col" id="diff">
+        <div class="col-9">
+        <pre id="diff"></pre>
         </div>
     </div>
     </div>
@@ -50,7 +51,7 @@
                     return response.json();
                 }).then(function(json) {
                     let diff = document.getElementById('diff');
-                    diff.innerHTML = json.diff;
+                    diff.innerText= json.diff;
                 });
             }
         }

@@ -1,26 +1,31 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
+	"strings"
 
 	"github.com/go-openapi/loads"
 	"github.com/go-swagger/go-swagger/cmd/swagger/commands/diff"
 	"github.com/labstack/echo/v4"
-	"gopkg.in/yaml.v2"
 )
 
 func listDocsHandler(e echo.Context) error {
 	var result = make(map[string][]string)
 	for _, doc := range config.Docs {
+		var index = 0
 		filepath.Walk(doc.Path(), func(path string, info os.FileInfo, err error) error {
+			index = index + 1
+			if index > 20 {
+				return nil
+			}
 			if info.IsDir() {
 				return nil
 			} else {
 
-				result[doc.Name] = append(result[doc.Name], filepath.Base(path))
+				result[doc.Name] = append([]string{filepath.Base(path)}, result[doc.Name]...)
 			}
 			return nil
 		})
@@ -59,25 +64,17 @@ func docDiffDetailHandler(e echo.Context) error {
 		return e.JSON(500, "get diff error "+err.Error())
 
 	}
-	input, err, _ := diffs.ReportAllDiffs(false)
-	var result = make([]byte, 1024*20) // read 20k diff
-	input.Read(result)
-
+	allDiff, err, _ := diffs.ReportAllDiffs(false)
+	if err != nil {
+		return err
+	}
+	diffStringBuider := new(strings.Builder)
+	_, err = io.Copy(diffStringBuider, allDiff)
+	if err != nil {
+		return err
+	}
 	if err != nil {
 		return e.JSON(500, "gen report error "+err.Error())
 	}
-	return e.JSON(200, map[string]string{"diff": string(result)})
-}
-
-func printYAML(output interface{}) (string, error) {
-	if reflect.ValueOf(output).IsNil() {
-		return "", nil
-	}
-
-	bytes, err := yaml.Marshal(output)
-	if err != nil {
-		return "", err
-	}
-	return string(bytes), nil
-
+	return e.JSON(200, map[string]string{"diff": diffStringBuider.String()})
 }

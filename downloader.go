@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-swagger/go-swagger/cmd/swagger/commands/diff"
@@ -124,11 +126,17 @@ type SlackRequestBody struct {
 // some text and the slack channel is saved within Slack.
 
 func SendSlackNotification(doc Doc, diffs *diff.SpecDifferences) error {
-	input, err, _ := diffs.ReportAllDiffs(false)
-	var result = make([]byte, 20*1024)
-	input.Read(result)
+	allDiff, err, _ := diffs.ReportAllDiffs(false)
+	if err != nil {
+		return err
+	}
+	diffStringBuider := new(strings.Builder)
+	_, err = io.Copy(diffStringBuider, allDiff)
+	if err != nil {
+		return err
+	}
 
-	msg := doc.Name + " 串接文件有更新\n```\n" + string(result) + "\n```"
+	msg := doc.Name + " 串接文件有更新\n```\n" + diffStringBuider.String() + "\n```"
 	slackBody, _ := json.Marshal(SlackRequestBody{Text: msg})
 	req, err := http.NewRequest(http.MethodPost, config.SlackWebhookUrl, bytes.NewBuffer(slackBody))
 	if err != nil {

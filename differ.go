@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -41,12 +40,9 @@ func isSameLeastVersion(folder string, newVersionPath string) (bool, *diff.SpecD
 		return false, nil, err
 	}
 
-	input, err, _ := diffReport.ReportAllDiffs(true)
-	var result []byte
-	input.Read(result)
-	fmt.Println(string(result))
-	if string(result) == "[]\n" {
-		return true, nil, nil
+	numDiffs := len(diffReport)
+	if numDiffs == 0 {
+		return true, nil, err
 	}
 	if err != nil {
 		return false, nil, err
