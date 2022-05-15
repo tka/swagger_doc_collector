@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-swagger/go-swagger/cmd/swagger/commands/diff"
+
+	"github.com/go-openapi/loads"
 	"go.uber.org/zap"
 )
 
@@ -57,8 +60,21 @@ func (downloader *Downloader) downloadDocs() {
 
 }
 
-func (downloader *Downloader) downloadFile(doc Doc) {
+func (downloader *Downloader) downloadFile(doc Doc) (err error) {
 	logger.Info("Downloading", zap.Any("doc", doc))
+	defer func() {
+		/*
+			if x := recover(); x != nil {
+				sendSlackMessage("串接文件 " + doc.Name + " 下载失敗")
+				logger.Error("Download Failed", zap.Any("doc", doc), zap.Any("err", x))
+			}
+			//*/
+		if err != nil {
+			sendSlackMessage("串接文件 " + doc.Name + " 下载失敗")
+			logger.Error("Download Failed", zap.Any("doc", doc), zap.Error(err))
+		}
+	}()
+
 	now := time.Now().Unix()
 	filepath := path.Join(doc.Path(), strconv.FormatInt(now, 10))
 
@@ -72,30 +88,50 @@ func (downloader *Downloader) downloadFile(doc Doc) {
 	resp, err := http.Get(url)
 	if err != nil {
 		logger.Error("download file fail", zap.String("url", url), zap.Error(err))
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
 	// Check server response
 	if resp.StatusCode != http.StatusOK {
 		logger.Error("download file status error", zap.String("url", url), zap.Int("status", resp.StatusCode))
-		return
+		return err
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		logger.Error("read body error ", zap.String("url", url), zap.Error(err))
-		return
+		return err
 	}
 
-	tmpFile, err := os.CreateTemp("", "newapi")
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(body)
-	tmpFile.Close()
-	isSame, diffs, err := isSameLeastVersion(folder, tmpFile.Name())
+	jsonRaw := json.RawMessage(body)
+	newSpec, err := loads.Analyzed(jsonRaw, "")
+	if err != nil {
+		logger.Error("analyzed json raw error", zap.String("url", url), zap.Error(err))
+		return err
+	}
+	expandedDoc, err := newSpec.Expanded()
+	if err != nil {
+		logger.Error("expanded doc error", zap.String("url", url), zap.Error(err))
+		return err
+	}
+	expandedDocByte, err := json.MarshalIndent(expandedDoc.Spec(), "", "  ")
+	if err != nil {
+		logger.Error("marshal expanded doc error", zap.String("url", url), zap.Error(err))
+		return err
+	}
+	// remove recursion $ref in doc
+	r, _ := regexp.Compile(`\$ref[^}]*`)
+	finalDoc := r.ReplaceAllString(string(expandedDocByte), "type\":\"object\"")
+	expandedDocByte = []byte(finalDoc)
+	newSpec, err = loads.Analyzed(expandedDocByte, "")
+	if err != nil {
+		return err
+	}
+	isSame, diffs, err := isSameLeastVersion(folder, newSpec)
 	if isSame {
 		logger.Info("same version", zap.String("url", url))
-		return
+		return err
 	} else if err != nil {
 		// log and create new version
 		logger.Error("check api diff error", zap.String("url", url), zap.Error(err))
@@ -105,17 +141,20 @@ func (downloader *Downloader) downloadFile(doc Doc) {
 	out, err := os.Create(filepath)
 	if err != nil {
 		logger.Error("create file path fail", zap.String("path", filepath), zap.Error(err))
-		return
+		return err
 	}
 	defer out.Close()
+
 	// Writer the body to file
-	_, err = out.Write(body)
+	_, err = out.Write(expandedDocByte)
 	if err != nil {
 		logger.Error("write file error", zap.String("url", url), zap.String("path", filepath), zap.Error(err))
-		return
+		return err
+	} else {
+		logger.Info("write file success", zap.String("url", url), zap.String("path", filepath))
 	}
 
-	SendSlackNotification(doc, diffs)
+	return SendSlackNotification(doc, diffs)
 }
 
 type SlackRequestBody struct {
@@ -126,6 +165,9 @@ type SlackRequestBody struct {
 // some text and the slack channel is saved within Slack.
 
 func SendSlackNotification(doc Doc, diffs *diff.SpecDifferences) error {
+	if diffs == nil {
+		return nil
+	}
 	allDiff, err, _ := diffs.ReportAllDiffs(false)
 	if err != nil {
 		return err
@@ -137,6 +179,9 @@ func SendSlackNotification(doc Doc, diffs *diff.SpecDifferences) error {
 	}
 
 	msg := doc.Name + " 串接文件有更新\n```\n" + diffStringBuider.String() + "\n```"
+	return sendSlackMessage(msg)
+}
+func sendSlackMessage(msg string) error {
 	slackBody, _ := json.Marshal(SlackRequestBody{Text: msg})
 	req, err := http.NewRequest(http.MethodPost, config.SlackWebhookUrl, bytes.NewBuffer(slackBody))
 	if err != nil {

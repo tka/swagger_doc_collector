@@ -8,14 +8,10 @@ import (
 	"github.com/go-swagger/go-swagger/cmd/swagger/commands/diff"
 )
 
-func isSameLeastVersion(folder string, newVersionPath string) (bool, *diff.SpecDifferences, error) {
-	s1, err := loads.Spec(newVersionPath)
+func isSameLeastVersion(folder string, newSpec *loads.Document) (bool, *diff.SpecDifferences, error) {
 
-	if err != nil {
-		return false, nil, err
-	}
 	var leastVersion string
-	err = filepath.Walk(folder, func(path string, f os.FileInfo, err error) error {
+	err := filepath.Walk(folder, func(path string, f os.FileInfo, err error) error {
 		if f.IsDir() {
 			return nil
 		}
@@ -30,12 +26,12 @@ func isSameLeastVersion(folder string, newVersionPath string) (bool, *diff.SpecD
 	if leastVersion == "" {
 		return false, nil, nil
 	}
-	s2, err := loads.Spec(leastVersion)
+	oldSpec, err := loads.Spec(leastVersion)
 	if err != nil {
 		return false, nil, err
 	}
 
-	diffReport, err := diff.Compare(s1.Spec(), s2.Spec())
+	diffReport, err := diff.Compare(oldSpec.Spec(), newSpec.Spec())
 	if err != nil {
 		return false, nil, err
 	}
